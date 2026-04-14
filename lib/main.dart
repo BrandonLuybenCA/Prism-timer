@@ -1,8 +1,66 @@
 import 'dart:ui';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:live_activities/live_activities.dart';
 
-void main() => runApp(const PrismApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await _initializeNotifications();
+  runApp(const PrismApp());
+}
+
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+
+Future<void> _initializeNotifications() async {
+  const AndroidInitializationSettings androidSettings =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+  
+  const DarwinInitializationSettings iosSettings =
+      DarwinInitializationSettings(
+    requestAlertPermission: true,
+    requestBadgePermission: true,
+    requestSoundPermission: true,
+  );
+  
+  const InitializationSettings settings = InitializationSettings(
+    android: androidSettings,
+    iOS: iosSettings,
+  );
+  
+  await flutterLocalNotificationsPlugin.initialize(settings);
+}
+
+Future<void> _showTimerCompleteNotification() async {
+  const AndroidNotificationDetails androidDetails =
+      AndroidNotificationDetails(
+    'timer_channel',
+    'Timer Notifications',
+    channelDescription: 'Notifications when focus timer completes',
+    importance: Importance.high,
+    priority: Priority.high,
+  );
+  
+  const DarwinNotificationDetails iosDetails =
+      DarwinNotificationDetails(
+    presentAlert: true,
+    presentBadge: true,
+    presentSound: true,
+  );
+  
+  const NotificationDetails details = NotificationDetails(
+    android: androidDetails,
+    iOS: iosDetails,
+  );
+  
+  await flutterLocalNotificationsPlugin.show(
+    0,
+    'Prism',
+    'Time\'s up — take a break',
+    details,
+  );
+}
 
 class PrismApp extends StatelessWidget {
   const PrismApp({super.key});
@@ -26,7 +84,7 @@ class FocusTimerPage extends StatefulWidget {
 }
 
 class _FocusTimerPageState extends State<FocusTimerPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late AnimationController _bgController;
   late Animation<double> _bgAnimation;
 
@@ -34,10 +92,14 @@ class _FocusTimerPageState extends State<FocusTimerPage>
   int remainingSeconds = totalSeconds;
   Timer? _timer;
   bool isRunning = false;
+  
+  final LiveActivities _liveActivities = LiveActivities();
+  String? _activityId;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bgController = AnimationController(
       duration: const Duration(seconds: 12),
       vsync: this,
@@ -47,29 +109,99 @@ class _FocusTimerPageState extends State<FocusTimerPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _bgController.dispose();
+    _endLiveActivity();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused && isRunning) {
+      _updateLiveActivity();
+    } else if (state == AppLifecycleState.resumed) {
+      _endLiveActivity();
+    }
+  }
+
+  Future<void> _startLiveActivity() async {
+    try {
+      final activity = await _liveActivities.createActivity(
+        data: {
+          'title': 'Prism',
+          'remainingSeconds': remainingSeconds,
+          'totalSeconds': totalSeconds,
+          'progress': progress,
+          'formattedTime': formatTime(remainingSeconds),
+        },
+      );
+      _activityId = activity?.id;
+    } catch (e) {
+      // Live Activities may fail silently on simulator
+    }
+  }
+
+  Future<void> _updateLiveActivity() async {
+    if (_activityId == null) {
+      await _startLiveActivity();
+      return;
+    }
+    
+    try {
+      await _liveActivities.updateActivity(
+        activityId: _activityId!,
+        data: {
+          'title': 'Prism',
+          'remainingSeconds': remainingSeconds,
+          'totalSeconds': totalSeconds,
+          'progress': progress,
+          'formattedTime': formatTime(remainingSeconds),
+        },
+      );
+    } catch (e) {
+      // Activity may have expired
+      _activityId = null;
+    }
+  }
+
+  Future<void> _endLiveActivity() async {
+    if (_activityId != null) {
+      try {
+        await _liveActivities.endActivity(activityId: _activityId!);
+      } catch (e) {
+        // Ignore errors
+      }
+      _activityId = null;
+    }
   }
 
   void toggleTimer() {
     if (isRunning) {
       _timer?.cancel();
+      _endLiveActivity();
     } else {
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (remainingSeconds > 0) {
           setState(() => remainingSeconds--);
+          if (remainingSeconds % 5 == 0) {
+            _updateLiveActivity();
+          }
         } else {
           _timer?.cancel();
           setState(() => isRunning = false);
+          _endLiveActivity();
+          _showTimerCompleteNotification();
         }
       });
+      _startLiveActivity();
     }
     setState(() => isRunning = !isRunning);
   }
 
   void resetTimer() {
     _timer?.cancel();
+    _endLiveActivity();
     setState(() {
       remainingSeconds = totalSeconds;
       isRunning = false;
