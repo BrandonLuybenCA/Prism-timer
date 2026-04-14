@@ -15,7 +15,12 @@ jobs:
           flutter-version: '3.19.0'
 
       - name: Create iOS Project
-        run: flutter create --platforms=ios .
+        run: |
+          flutter create --platforms=ios prism_temp
+          cp -r prism_temp/* .
+          cp -r prism_temp/.dart_tool . 2>/dev/null || true
+          cp -r prism_temp/.gitignore . 2>/dev/null || true
+          rm -rf prism_temp
 
       - name: Generate App Icons
         run: |
@@ -89,8 +94,21 @@ jobs:
           cp -r build/ios/iphoneos/Runner.app Payload/
           zip -r Prism.ipa Payload
 
-      - name: Upload IPA
+      - name: Upload to transfer.sh (Direct Download)
+        run: |
+          echo "=============================================="
+          echo "📱 UPLOADING TO transfer.sh..."
+          echo "=============================================="
+          curl --upload-file Prism.ipa https://transfer.sh/Prism.ipa
+          echo ""
+          echo "=============================================="
+          echo "✅ Copy the URL above and open in Safari on your iPhone"
+          echo "📂 Save to Files, then import into your sideloader"
+          echo "⚠️ Link expires in 14 days"
+          echo "=============================================="
+
+      - name: Upload IPA to GitHub Artifacts (Backup)
         uses: actions/upload-artifact@v4
         with:
-          name: Prism
+          name: Prism-Backup
           path: Prism.ipa
