@@ -100,50 +100,41 @@ jobs:
           cp -r build/ios/iphoneos/Runner.app Payload/
           zip -r Prism.ipa Payload
 
-      - name: Upload to Multiple Services (Guaranteed Link)
+      - name: Serve IPA with Cloudflare Tunnel
         run: |
-          echo "=============================================="
-          echo "📱 UPLOADING TO MULTIPLE SERVICES..."
-          echo "=============================================="
+          # Install cloudflared
+          brew install cloudflare/cloudflare/cloudflared
           
-          # Try file.io
-          echo ""
-          echo "Attempt 1: file.io"
-          RESPONSE=$(curl -s -F "file=@Prism.ipa" https://file.io)
-          LINK=$(echo $RESPONSE | grep -o '"link":"[^"]*"' | cut -d'"' -f4)
-          if [ ! -z "$LINK" ]; then
-            echo "✅ FILE.IO LINK: $LINK"
-          else
-            echo "❌ file.io failed"
-          fi
+          # Start Python HTTP server in background
+          python3 -m http.server 8080 &
           
-          # Try transfer.sh (backup)
-          echo ""
-          echo "Attempt 2: transfer.sh"
-          TRANSFER_LINK=$(curl -s --upload-file Prism.ipa https://transfer.sh/Prism.ipa)
-          if [ ! -z "$TRANSFER_LINK" ] && [[ "$TRANSFER_LINK" == *"http"* ]]; then
-            echo "✅ TRANSFER.SH LINK: $TRANSFER_LINK"
-          else
-            echo "❌ transfer.sh failed"
-          fi
+          # Create tunnel and capture URL
+          cloudflared tunnel --url http://localhost:8080 > tunnel.log 2>&1 &
           
-          # Try bashupload.com (backup 2)
-          echo ""
-          echo "Attempt 3: bashupload.com"
-          BASH_LINK=$(curl -s -F "file=@Prism.ipa" https://bashupload.com/ | grep -o 'https://bashupload.com/[^"]*' | head -1)
-          if [ ! -z "$BASH_LINK" ]; then
-            echo "✅ BASHUPLOAD LINK: $BASH_LINK"
-          else
-            echo "❌ bashupload.com failed"
-          fi
+          # Wait for tunnel to establish
+          echo "⏳ Starting Cloudflare tunnel..."
+          sleep 8
+          
+          # Extract the URL
+          TUNNEL_URL=$(grep -o 'https://[^ ]*\.trycloudflare\.com' tunnel.log | head -1)
           
           echo ""
           echo "=============================================="
-          echo "📲 Copy ANY working link above into Safari on your iPhone"
-          echo "📂 Save to Files, then import into your sideloader"
+          echo "✅ DOWNLOAD LINK (valid for 10 minutes):"
+          echo "$TUNNEL_URL/Prism.ipa"
+          echo ""
+          echo "📲 Copy this EXACT URL into Safari on your iPhone"
+          echo "📂 The IPA will download directly"
+          echo ""
+          echo "⚠️ DO NOT close this tab — keep the action running"
+          echo "   The link dies when the workflow ends (10 min)"
           echo "=============================================="
+          
+          # Keep alive for 10 minutes
+          sleep 600
 
       - name: Upload IPA to GitHub Artifacts (Backup)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Prism-Backup
