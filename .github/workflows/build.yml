@@ -100,21 +100,47 @@ jobs:
           cp -r build/ios/iphoneos/Runner.app Payload/
           zip -r Prism.ipa Payload
 
-      - name: Upload to file.io (Direct Download)
+      - name: Upload to Multiple Services (Guaranteed Link)
         run: |
           echo "=============================================="
-          echo "📱 UPLOADING TO file.io..."
+          echo "📱 UPLOADING TO MULTIPLE SERVICES..."
           echo "=============================================="
-          RESPONSE=$(curl -F "file=@Prism.ipa" https://file.io)
+          
+          # Try file.io
+          echo ""
+          echo "Attempt 1: file.io"
+          RESPONSE=$(curl -s -F "file=@Prism.ipa" https://file.io)
           LINK=$(echo $RESPONSE | grep -o '"link":"[^"]*"' | cut -d'"' -f4)
+          if [ ! -z "$LINK" ]; then
+            echo "✅ FILE.IO LINK: $LINK"
+          else
+            echo "❌ file.io failed"
+          fi
+          
+          # Try transfer.sh (backup)
+          echo ""
+          echo "Attempt 2: transfer.sh"
+          TRANSFER_LINK=$(curl -s --upload-file Prism.ipa https://transfer.sh/Prism.ipa)
+          if [ ! -z "$TRANSFER_LINK" ] && [[ "$TRANSFER_LINK" == *"http"* ]]; then
+            echo "✅ TRANSFER.SH LINK: $TRANSFER_LINK"
+          else
+            echo "❌ transfer.sh failed"
+          fi
+          
+          # Try bashupload.com (backup 2)
+          echo ""
+          echo "Attempt 3: bashupload.com"
+          BASH_LINK=$(curl -s -F "file=@Prism.ipa" https://bashupload.com/ | grep -o 'https://bashupload.com/[^"]*' | head -1)
+          if [ ! -z "$BASH_LINK" ]; then
+            echo "✅ BASHUPLOAD LINK: $BASH_LINK"
+          else
+            echo "❌ bashupload.com failed"
+          fi
+          
           echo ""
           echo "=============================================="
-          echo "✅ DIRECT DOWNLOAD LINK:"
-          echo "$LINK"
-          echo ""
-          echo "📲 Open this link in Safari on your iPhone."
-          echo "📂 Save to Files, then import into your sideloader."
-          echo "🔔 Live Activities will show timer on Lock Screen!"
+          echo "📲 Copy ANY working link above into Safari on your iPhone"
+          echo "📂 Save to Files, then import into your sideloader"
           echo "=============================================="
 
       - name: Upload IPA to GitHub Artifacts (Backup)
